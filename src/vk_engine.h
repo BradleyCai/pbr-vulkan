@@ -112,11 +112,8 @@ public:
 	VkPipelineLayout _gradientPipelineLayout;
 	std::vector<ComputeEffect> backgroundEffects;
 	int currentBackgroundEffect{1};
-	VkPipelineLayout _trianglePipelineLayout;
-	VkPipeline _trianglePipeline;
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
-	GPUMeshBuffers rectangle;
 	std::vector<std::shared_ptr<MeshAsset>> testMeshes;
 
 	static VulkanEngine& Get();
@@ -144,7 +141,6 @@ private:
 	void init_pipelines();
 	void init_background_pipelines();
 	void init_imgui();
-	void init_triangle_pipeline();
 	void init_mesh_pipeline();
 	void init_default_data();
 
