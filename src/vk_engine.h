@@ -59,13 +59,95 @@ struct ComputeEffect
 
 struct FrameData
 {
-	VkCommandPool _commandPool;
-	VkCommandBuffer _mainCommandBuffer;
-
 	VkSemaphore _swapchainSemaphore, _renderSemaphore;
 	VkFence _renderFence;
 
+	VkCommandPool _commandPool;
+	VkCommandBuffer _mainCommandBuffer;
+
 	DeletionQueue _deletionQueue;
+	DescriptorAllocatorGrowable _frameDescriptors;
+};
+
+struct GPUSceneData
+{
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::mat4 viewproj;
+	glm::vec4 ambientColor;
+	glm::vec4 sunlightDirection; // w for sun power
+	glm::vec4 sunlightColor;
+};
+
+struct RenderObject
+{
+	uint32_t indexCount;
+	uint32_t firstIndex;
+	VkBuffer indexBuffer;
+
+	MaterialInstance *material;
+
+	glm::mat4 transform;
+	VkDeviceAddress vertexBufferAddress;
+};
+
+struct DrawContext
+{
+	std::vector<RenderObject> OpaqueSurfaces;
+}
+
+struct MaterialPipeline
+{
+	VkPipeline pipeline;
+	VkPipelineLayout layout;
+};
+
+struct MaterialInstance
+{
+	MaterialPipeline *pipeline;
+	VkDescriptorSet materialSet;
+	MaterialPass passType;
+};
+
+struct GLTFMetallic_Roughness
+{
+	MaterialPipeline opaquePipeline;
+	MaterialPipeline transparentPipeline;
+
+	VkDescriptorSetLayout materialLayout;
+
+	struct MaterialConstants
+	{
+		glm::vec4 colorFactors;
+		glm::vec4 metal_rough_factors;
+		// padding, we need it anyway for uniform buffers
+		glm::vec4 extra[14];
+	};
+
+	struct MaterialResources
+	{
+		AllocatedImage colorImage;
+		VkSampler colorSampler;
+		AllocatedImage metalRoughImage;
+		VkSampler metalRoughSampler;
+		VkBuffer dataBuffer;
+		uint32_t dataBufferOffset;
+	};
+
+	DescriptorWriter writer;
+
+	void build_pipelines(VulkanEngine *engine);
+	void clear_resources(VkDevice device);
+
+	MaterialInstance write_material(VkDevice device, MaterialPass pass, const MaterialResources &resources, DescriptorAllocatorGrowable &descriptorAllocator);
+};
+
+struct MeshNode : public Node
+{
+
+	std::shared_ptr<MeshAsset> mesh;
+
+	virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -76,6 +158,7 @@ public:
 	int _frameNumber {0};
 	bool stop_rendering{ false };
 	VkExtent2D _windowExtent{ 1700 , 900 };
+	bool resize_requested {false};
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -99,6 +182,7 @@ public:
 	AllocatedImage _drawImage;
 	AllocatedImage _depthImage;
 	VkExtent2D _drawExtent;
+	float renderScale = 1.f;
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame() { return _frames[_frameNumber % FRAME_OVERLAP]; };
 	VkSwapchainKHR _swapchain;
@@ -108,6 +192,8 @@ public:
 	VkExtent2D _swapchainExtent;
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
+	VkDescriptorSetLayout _singleImageDescriptorLayout;
+
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
 	std::vector<ComputeEffect> backgroundEffects;
@@ -115,6 +201,17 @@ public:
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
 	std::vector<std::shared_ptr<MeshAsset>> testMeshes;
+	GPUSceneData sceneData;
+	VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
+	MaterialInstance defaultData;
+	GLTFMetallic_Roughness metalRoughMaterial;
+
+	AllocatedImage _whiteImage;
+	AllocatedImage _blackImage;
+	AllocatedImage _greyImage;
+	AllocatedImage _errorCheckerboardImage;
+	VkSampler _defaultSamplerLinear;
+	VkSampler _defaultSamplerNearest;
 
 	static VulkanEngine& Get();
 
@@ -123,6 +220,9 @@ public:
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroy_buffer(const AllocatedBuffer &buffer);
 	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+	AllocatedImage create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	AllocatedImage create_image(void* data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	void destroy_image(const AllocatedImage& img);
 
 	//initializes everything in the engine
 	void init();
@@ -149,5 +249,6 @@ private:
 	void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
 
 	void create_swapchain(uint32_t width, uint32_t height);
+	void resize_swapchain();
 	void destroy_swapchain();
 };
