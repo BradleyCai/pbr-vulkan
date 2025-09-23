@@ -11,6 +11,7 @@
 #include "vk_mem_alloc.h"
 #include "vk_descriptors.h"
 #include <vk_loader.h>
+#include "camera.h"
 
 struct DeletionQueue 
 {
@@ -30,13 +31,13 @@ struct DeletionQueue
 	}
 };
 
-struct AllocatedImage
+struct EngineStats
 {
-	VkImage image;
-	VkImageView imageView;
-	VmaAllocation allocation;
-	VkExtent3D imageExtent;
-	VkFormat imageFormat;
+	float frametime;
+	int triangle_count;
+	int drawcall_count;
+	float scene_update_time;
+	float mesh_draw_time;
 };
 
 struct ComputePushConstants
@@ -86,7 +87,7 @@ struct RenderObject
 	VkBuffer indexBuffer;
 
 	MaterialInstance *material;
-
+	Bounds bounds;
 	glm::mat4 transform;
 	VkDeviceAddress vertexBufferAddress;
 };
@@ -94,19 +95,7 @@ struct RenderObject
 struct DrawContext
 {
 	std::vector<RenderObject> OpaqueSurfaces;
-}
-
-struct MaterialPipeline
-{
-	VkPipeline pipeline;
-	VkPipelineLayout layout;
-};
-
-struct MaterialInstance
-{
-	MaterialPipeline *pipeline;
-	VkDescriptorSet materialSet;
-	MaterialPass passType;
+	std::vector<RenderObject> TransparentSurfaces;
 };
 
 struct GLTFMetallic_Roughness
@@ -144,7 +133,6 @@ struct GLTFMetallic_Roughness
 
 struct MeshNode : public Node
 {
-
 	std::shared_ptr<MeshAsset> mesh;
 
 	virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
@@ -169,9 +157,10 @@ public:
 	VkSurfaceKHR _surface;// Vulkan window surface
 	VmaAllocator _allocator;
 	DeletionQueue _mainDeletionQueue;
-	DescriptorAllocator globalDescriptorAllocator;
+	DescriptorAllocatorGrowable globalDescriptorAllocator;
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
+	EngineStats stats;
 
 	// immediate submit structures
 	VkFence _immFence;
@@ -193,6 +182,8 @@ public:
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
 	VkDescriptorSetLayout _singleImageDescriptorLayout;
+	DrawContext mainDrawContext;
+	std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
 
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
@@ -205,6 +196,7 @@ public:
 	VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
 	MaterialInstance defaultData;
 	GLTFMetallic_Roughness metalRoughMaterial;
+	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
 
 	AllocatedImage _whiteImage;
 	AllocatedImage _blackImage;
@@ -213,9 +205,13 @@ public:
 	VkSampler _defaultSamplerLinear;
 	VkSampler _defaultSamplerNearest;
 
+	Camera mainCamera;
+
 	static VulkanEngine& Get();
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)> &&function);
+
+	void update_scene();
 
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroy_buffer(const AllocatedBuffer &buffer);

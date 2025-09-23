@@ -65,6 +65,19 @@ void VulkanEngine::init()
 
 	// everything went fine
 	_isInitialized = true;
+
+	mainCamera.velocity = glm::vec3(0.f);
+	mainCamera.position = glm::vec3(30.f, -00.f, -085.f);
+
+	mainCamera.pitch = 0;
+	mainCamera.yaw = 0;
+
+	std::string structurePath = {"..\\assets\\structure.glb"};
+	auto structureFile = loadGltf(this, structurePath);
+
+	assert(structureFile.has_value());
+
+	loadedScenes["structure"] = *structureFile;
 }
 
 void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)> &&function)
@@ -90,6 +103,49 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)> &&f
 	VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immFence));
 
 	VK_CHECK(vkWaitForFences(_device, 1, &_immFence, true, 9999999999));
+}
+
+bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj)
+{
+	std::array<glm::vec3, 8> corners{
+		glm::vec3{1, 1, 1},
+		glm::vec3{1, 1, -1},
+		glm::vec3{1, -1, 1},
+		glm::vec3{1, -1, -1},
+		glm::vec3{-1, 1, 1},
+		glm::vec3{-1, 1, -1},
+		glm::vec3{-1, -1, 1},
+		glm::vec3{-1, -1, -1},
+	};
+
+	glm::mat4 matrix = viewproj * obj.transform;
+
+	glm::vec3 min = {1.5, 1.5, 1.5};
+	glm::vec3 max = {-1.5, -1.5, -1.5};
+
+	for (int c = 0; c < 8; c++)
+	{
+		// project each corner into clip space
+		glm::vec4 v = matrix * glm::vec4(obj.bounds.origin + (corners[c] * obj.bounds.extents), 1.f);
+
+		// perspective correction
+		v.x = v.x / v.w;
+		v.y = v.y / v.w;
+		v.z = v.z / v.w;
+
+		min = glm::min(glm::vec3{v.x, v.y, v.z}, min);
+		max = glm::max(glm::vec3{v.x, v.y, v.z}, max);
+	}
+
+	// check the clip space box is within the view
+	if (min.z > 1.f || max.z < 0.f || min.x > 1.f || max.x < -1.f || min.y > 1.f || max.y < -1.f)
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
@@ -231,8 +287,12 @@ AllocatedImage VulkanEngine::create_image(void *data, VkExtent3D size, VkFormat 
 		vkCmdCopyBufferToImage(cmd, uploadbuffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
 			&copyRegion);
 
-		vkutil::transition_image(cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		if (mipmapped) {
+			vkutil::generate_mipmaps(cmd, new_image.image, VkExtent2D{new_image.imageExtent.width,new_image.imageExtent.height});
+		} else {
+			vkutil::transition_image(cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
 	});
 
 	destroy_buffer(uploadbuffer);
@@ -457,12 +517,13 @@ void VulkanEngine::init_sync_structures()
 void VulkanEngine::init_descriptors()
 {
 	//create a descriptor pool that will hold 10 sets with 1 image each
-	std::vector<DescriptorAllocator::PoolSizeRatio> sizes =
+	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes =
 	{
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }
 	};
 
-	globalDescriptorAllocator.init_pool(_device, 10, sizes);
+	globalDescriptorAllocator.init(_device, 10, sizes);
 
 	//make the descriptor set layout for our compute draw
 	{
@@ -485,15 +546,16 @@ void VulkanEngine::init_descriptors()
 
 	//allocate a descriptor set for our draw image
 	_drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);
+	{
+		DescriptorWriter writer;
+		writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
 
-	DescriptorWriter writer;
-	writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-
-	writer.update_set(_device, _drawImageDescriptors);
+		writer.update_set(_device, _drawImageDescriptors);
+	}
 
 	//make sure both the descriptor allocator and the new layout get cleaned up properly
 	_mainDeletionQueue.push_function([&]() {
-		globalDescriptorAllocator.destroy_pool(_device);
+		globalDescriptorAllocator.destroy_pools(_device);
 
 		vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
 	});
@@ -520,7 +582,9 @@ void VulkanEngine::init_descriptors()
 void VulkanEngine::init_pipelines()
 {
 	init_background_pipelines();
-	init_mesh_pipeline();
+	// init_mesh_pipeline();
+
+	metalRoughMaterial.build_pipelines(this);
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -861,7 +925,7 @@ void VulkanEngine::init_default_data()
 	{
 		for (int y = 0; y < 32; y++)
 		{
-			pixels[y * 32 + x] = ((x % 2) ^ (y % 2)) ? grey : white;
+			pixels[y * 32 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
 		}
 	}
 	_errorCheckerboardImage = create_image(pixels.data(), VkExtent3D{32, 32, 1}, VK_FORMAT_R8G8B8A8_UNORM,
@@ -890,10 +954,10 @@ void VulkanEngine::init_default_data()
 
 	GLTFMetallic_Roughness::MaterialResources materialResources;
 	// default the material textures
-	materialResources.colorImage = _whiteImage;
-	materialResources.colorSampler = _defaultSamplerLinear;
-	materialResources.metalRoughImage = _whiteImage;
-	materialResources.metalRoughSampler = _defaultSamplerLinear;
+	materialResources.colorImage = _errorCheckerboardImage;
+	materialResources.colorSampler = _defaultSamplerNearest;
+	materialResources.metalRoughImage = _errorCheckerboardImage;
+	materialResources.metalRoughSampler = _defaultSamplerNearest;
 
 	// set the uniform buffer for the material data
 	AllocatedBuffer materialConstants = create_buffer(sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -911,6 +975,22 @@ void VulkanEngine::init_default_data()
 	materialResources.dataBufferOffset = 0;
 
 	defaultData = metalRoughMaterial.write_material(_device, MaterialPass::MainColor, materialResources, globalDescriptorAllocator);
+
+	for (auto &m : testMeshes)
+	{
+		std::shared_ptr<MeshNode> newNode = std::make_shared<MeshNode>();
+		newNode->mesh = m;
+
+		newNode->localTransform = glm::mat4{1.f};
+		newNode->worldTransform = glm::mat4{1.f};
+
+		for (auto &s : newNode->mesh->surfaces)
+		{
+			s.material = std::make_shared<GLTFMaterial>(defaultData);
+		}
+
+		loadedNodes[m->name] = std::move(newNode);
+	}
 }
 
 void VulkanEngine::destroy_swapchain()
@@ -929,6 +1009,8 @@ void VulkanEngine::cleanup()
 	if (_isInitialized) {
 		//make sure the gpu has stopped doing its things
 		vkDeviceWaitIdle(_device);
+
+		loadedScenes.clear();
 
 		for (int i = 0; i < FRAME_OVERLAP; i++) {
 			//already written from before
@@ -994,8 +1076,9 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
 
 void VulkanEngine::draw()
 {
-	// wait until the gpu has finished rendering the last frame. Timeout of 1
-	// second
+	update_scene();
+
+	// wait until the gpu has finished rendering the last frame. Timeout of 1 second
 	VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true, 1000000000));
 	get_current_frame()._deletionQueue.flush();
 	get_current_frame()._frameDescriptors.clear_pools(_device);
@@ -1096,6 +1179,37 @@ void VulkanEngine::draw()
 
 void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 {
+	// reset counters
+	stats.drawcall_count = 0;
+	stats.triangle_count = 0;
+	// begin clock
+	auto start = std::chrono::system_clock::now();
+
+	std::vector<uint32_t> opaque_draws;
+	opaque_draws.reserve(mainDrawContext.OpaqueSurfaces.size());
+
+	for (int i = 0; i < mainDrawContext.OpaqueSurfaces.size(); i++)
+	{
+		if (is_visible(mainDrawContext.OpaqueSurfaces[i], sceneData.viewproj))
+		{
+			opaque_draws.push_back(i);
+		}
+	}
+
+	// sort the opaque surfaces by material and mesh
+	std::sort(opaque_draws.begin(), opaque_draws.end(), [&](const auto &iA, const auto &iB) {
+		const RenderObject& A = mainDrawContext.OpaqueSurfaces[iA];
+		const RenderObject& B = mainDrawContext.OpaqueSurfaces[iB];
+		if (A.material == B.material)
+		{
+			return A.indexBuffer < B.indexBuffer;
+		}
+		else
+		{
+			return A.material < B.material;
+		}
+	});
+
 	// begin a render pass  connected to our draw image
 	VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -1104,8 +1218,6 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
 	vkCmdBeginRendering(cmd, &renderInfo);
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
-	
 	// set dynamic viewport and scissor
 	VkViewport viewport = {};
 	viewport.x = 0;
@@ -1124,36 +1236,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 	scissor.extent.height = _drawExtent.height;
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	// bind a texture
-	VkDescriptorSet imageSet = get_current_frame()._frameDescriptors.allocate(_device, _singleImageDescriptorLayout);
-	{
-		DescriptorWriter writer;
-		writer.write_image(0, _errorCheckerboardImage.imageView, _defaultSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-
-		writer.update_set(_device, imageSet);
-	}
-
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &imageSet, 0, nullptr);
-
-	glm::mat4 view = glm::translate(glm::vec3{0, 0, -3});
-	// camera projection
-	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_drawExtent.width / (float)_drawExtent.height, 10000.f, 0.1f);
-
-	// invert the Y direction on projection matrix so that we are more similar
-	// to opengl and gltf axis
-	projection[1][1] *= -1;
-
-	GPUDrawPushConstants push_constants;
-	push_constants.worldMatrix = projection * view;
-	push_constants.worldMatrix = glm::rotate(push_constants.worldMatrix, glm::radians(_frameNumber / 3.0f), glm::vec3(0.0, 1.0, 0.0));
-	push_constants.vertexBuffer = testMeshes[2]->meshBuffers.vertexBufferAddress;
-
-	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
-	vkCmdBindIndexBuffer(cmd, testMeshes[2]->meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-	vkCmdDrawIndexed(cmd, testMeshes[2]->surfaces[0].count, 1, testMeshes[2]->surfaces[0].startIndex, 0, 0);
-
+	
 	// allocate a new uniform buffer for the scene data
 	AllocatedBuffer gpuSceneDataBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -1173,7 +1256,87 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 	writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 	writer.update_set(_device, globalDescriptor);
 
+	// defined outside of the draw function, this is the state we will try to skip
+	MaterialPipeline *lastPipeline = nullptr;
+	MaterialInstance *lastMaterial = nullptr;
+	VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
+	auto draw = [&](const RenderObject &r)
+	{
+		if (r.material != lastMaterial)
+		{
+			lastMaterial = r.material;
+			// rebind pipeline and descriptors if the material changed
+			if (r.material->pipeline != lastPipeline)
+			{
+
+				lastPipeline = r.material->pipeline;
+				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r.material->pipeline->pipeline);
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r.material->pipeline->layout, 0, 1,
+										&globalDescriptor, 0, nullptr);
+
+				VkViewport viewport = {};
+				viewport.x = 0;
+				viewport.y = 0;
+				viewport.width = (float)_windowExtent.width;
+				viewport.height = (float)_windowExtent.height;
+				viewport.minDepth = 0.f;
+				viewport.maxDepth = 1.f;
+
+				vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+				VkRect2D scissor = {};
+				scissor.offset.x = 0;
+				scissor.offset.y = 0;
+				scissor.extent.width = _windowExtent.width;
+				scissor.extent.height = _windowExtent.height;
+
+				vkCmdSetScissor(cmd, 0, 1, &scissor);
+			}
+
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r.material->pipeline->layout, 1, 1,
+									&r.material->materialSet, 0, nullptr);
+		}
+		// rebind index buffer if needed
+		if (r.indexBuffer != lastIndexBuffer)
+		{
+			lastIndexBuffer = r.indexBuffer;
+			vkCmdBindIndexBuffer(cmd, r.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		}
+		// calculate final mesh matrix
+		GPUDrawPushConstants push_constants;
+		push_constants.worldMatrix = r.transform;
+		push_constants.vertexBuffer = r.vertexBufferAddress;
+
+		vkCmdPushConstants(cmd, r.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+
+		vkCmdDrawIndexed(cmd, r.indexCount, 1, r.firstIndex, 0, 0);
+		// stats
+		stats.drawcall_count++;
+		stats.triangle_count += r.indexCount / 3;
+	};
+
+	for (auto &r : opaque_draws)
+	{
+		draw(mainDrawContext.OpaqueSurfaces[r]);
+	}
+
+	for (auto &r : mainDrawContext.TransparentSurfaces)
+	{
+		draw(r);
+	}
+
+	// we delete the draw commands now that we processed them
+	mainDrawContext.OpaqueSurfaces.clear();
+	mainDrawContext.TransparentSurfaces.clear();
+
 	vkCmdEndRendering(cmd);
+
+	auto end = std::chrono::system_clock::now();
+
+	// convert to microseconds (integer), and then come back to miliseconds
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+	stats.mesh_draw_time = elapsed.count() / 1000.f;
 }
 
 void MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
@@ -1187,29 +1350,90 @@ void MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 		def.firstIndex = s.startIndex;
 		def.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
 		def.material = &s.material->data;
-
+		def.bounds = s.bounds;
 		def.transform = nodeMatrix;
 		def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
 
-		ctx.OpaqueSurfaces.push_back(def);
+		if (s.material->data.passType == MaterialPass::Transparent)
+		{
+			ctx.TransparentSurfaces.push_back(def);
+		}
+		else
+		{
+			ctx.OpaqueSurfaces.push_back(def);
+		}
 	}
 
 	// recurse down
 	Node::Draw(topMatrix, ctx);
 }
 
+void VulkanEngine::update_scene()
+{
+	// begin clock
+	auto start = std::chrono::system_clock::now();
+
+	glm::vec3 origin = glm::vec3{30.f, -00.f, -085.f};
+	loadedNodes["Suzanne"]->Draw(glm::translate(origin), mainDrawContext);
+
+	for (int x = -3; x < 3; x++)
+	{
+		glm::mat4 scale = glm::scale(glm::vec3{0.2});
+		glm::mat4 translation = glm::translate(origin + glm::vec3{x + 0.5, glm::sin(_frameNumber / 120.0 + x), 0});
+
+		loadedNodes["Suzanne"]->Draw(translation * scale, mainDrawContext);
+	}
+
+	loadedScenes["structure"]->Draw(glm::mat4{1.f}, mainDrawContext);
+
+	mainCamera.update();
+	glm::mat4 view = mainCamera.getViewMatrix();
+
+	// camera projection
+	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+
+	// invert the Y direction on projection matrix so that we are more similar
+	// to opengl and gltf axis
+	sceneData.proj[1][1] *= -1;
+	sceneData.view = view;
+	sceneData.proj = projection;
+	sceneData.viewproj = projection * view;
+
+	// some default lighting parameters
+	sceneData.ambientColor = glm::vec4(.1f);
+	sceneData.sunlightColor = glm::vec4(1.f);
+	sceneData.sunlightDirection = glm::vec4(0, 1, 0.5, 1.f);
+
+	auto end = std::chrono::system_clock::now();
+	// convert to microseconds (integer), and then come back to miliseconds
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+	stats.scene_update_time = elapsed.count() / 1000.f;
+}
+
 void VulkanEngine::run()
 {
 	SDL_Event e;
+
+	// Capture and hide the mouse at startup
+	SDL_SetRelativeMouseMode(SDL_TRUE);
+
 	bool bQuit = false;
 
 	// main loop
 	while (!bQuit) {
+		// begin clock
+		auto start = std::chrono::system_clock::now();
+
+		// everything else
 		// Handle events on queue
 		while (SDL_PollEvent(&e) != 0) {
 			// close the window when user alt-f4s or clicks the X button
 			if (e.type == SDL_QUIT)
 				bQuit = true;
+
+			mainCamera.processSDLEvent(e);
+			ImGui_ImplSDL2_ProcessEvent(&e);
 
 			if (e.type == SDL_WINDOWEVENT) {
 				if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) {
@@ -1258,9 +1482,24 @@ void VulkanEngine::run()
 		}
 		ImGui::End();
 
+		ImGui::Begin("Stats");
+		ImGui::Text("frametime %f ms", stats.frametime);
+		ImGui::Text("draw time %f ms", stats.mesh_draw_time);
+		ImGui::Text("update time %f ms", stats.scene_update_time);
+		ImGui::Text("triangles %i", stats.triangle_count);
+		ImGui::Text("draws %i", stats.drawcall_count);
+		ImGui::End();
+
 		// make imgui calculate internal draw structures
 		ImGui::Render();
 
 		draw();
+
+		// get clock again, compare with start clock
+		auto end = std::chrono::system_clock::now();
+
+		// convert to microseconds (integer), and then come back to miliseconds
+		auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+		stats.frametime = elapsed.count() / 1000.f;
 	}
 }

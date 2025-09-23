@@ -19,25 +19,25 @@ struct Vertex {
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer {
-Vertex vertices[];
+	Vertex vertices[];
 };
 
 //push constants block
 layout(push_constant) uniform constants {
-mat4 render_matrix;
-VertexBuffer vertexBuffer;
+	mat4 render_matrix;
+	VertexBuffer vertexBuffer;
 }
 PushConstants;
 
 void main() {
-Vertex v = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
+	Vertex v = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
 
-vec4 position = vec4(v.position, 1.0);
+	vec4 position = vec4(v.position, 1.0);
 
-gl_Position = sceneData.viewproj * PushConstants.render_matrix * position;
+	gl_Position = sceneData.viewproj * PushConstants.render_matrix * position;
 
-outNormal = (PushConstants.render_matrix * vec4(v.normal, 0.)).xyz;
-outColor = v.color.xyz * materialData.colorFactors.xyz;
-outUV.x = v.uv_x;
-outUV.y = v.uv_y;
+	outNormal = normalize((PushConstants.render_matrix * vec4(v.normal, 0.)).xyz);
+	outColor = v.color.xyz * materialData.colorFactors.xyz;
+	outUV.x = v.uv_x;
+	outUV.y = v.uv_y;
 }
