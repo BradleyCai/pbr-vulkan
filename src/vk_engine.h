@@ -239,7 +239,6 @@ private:
 	void init_pipelines();
 	void init_background_pipelines();
 	void init_imgui();
-	void init_mesh_pipeline();
 	void init_default_data();
 
 	void draw_geometry(VkCommandBuffer cmd);

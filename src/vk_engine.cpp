@@ -48,36 +48,17 @@ void VulkanEngine::init()
 		window_flags);
 
 	init_vulkan();
-
 	init_swapchain();
-
 	init_commands();
-
 	init_sync_structures();
 
 	init_descriptors();
-
 	init_pipelines();
-	
 	init_imgui();
-
 	init_default_data();
 
 	// everything went fine
 	_isInitialized = true;
-
-	mainCamera.velocity = glm::vec3(0.f);
-	mainCamera.position = _origin;
-
-	mainCamera.pitch = 0;
-	mainCamera.yaw = 0;
-
-	std::string structurePath = {"..\\assets\\structure.glb"};
-	auto structureFile = loadGltf(this, structurePath);
-
-	assert(structureFile.has_value());
-
-	loadedScenes["structure"] = *structureFile;
 }
 
 void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)> &&function)
@@ -479,8 +460,8 @@ void VulkanEngine::init_commands()
 	//we also want the pool to allow for resetting of individual command buffers
 	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-	for (int i = 0; i < FRAME_OVERLAP; i++) {
-
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
 		VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool));
 		// allocate the default command buffer that we will use for rendering
 		VkCommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(_frames[i]._commandPool, 1);
@@ -503,7 +484,8 @@ void VulkanEngine::init_sync_structures()
 	VkFenceCreateInfo fenceCreateInfo = vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
 	VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphore_create_info();
 
-	for (int i = 0; i < FRAME_OVERLAP; i++) {
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
 		VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_frames[i]._renderFence));
 
 		VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._swapchainSemaphore));
@@ -582,7 +564,6 @@ void VulkanEngine::init_descriptors()
 void VulkanEngine::init_pipelines()
 {
 	init_background_pipelines();
-	// init_mesh_pipeline();
 
 	metalRoughMaterial.build_pipelines(this);
 }
@@ -664,78 +645,6 @@ void VulkanEngine::init_background_pipelines()
 		vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
 		vkDestroyPipeline(_device, sky.pipeline, nullptr);
 		vkDestroyPipeline(_device, gradient.pipeline, nullptr);
-	});
-}
-
-void VulkanEngine::init_mesh_pipeline()
-{
-	VkShaderModule triangleFragShader;
-	if (!vkutil::load_shader_module("../shaders/tex_image.frag.spv", _device, &triangleFragShader))
-	{
-		fmt::print("Error when building the triangle fragment shader module");
-	}
-	else
-	{
-		fmt::print("Triangle fragment shader succesfully loaded");
-	}
-
-	VkShaderModule triangleVertexShader;
-	if (!vkutil::load_shader_module("../shaders/colored_triangle_mesh.vert.spv", _device, &triangleVertexShader))
-	{
-		fmt::print("Error when building the triangle vertex shader module");
-	}
-	else
-	{
-		fmt::print("Triangle vertex shader succesfully loaded");
-	}
-
-	VkPushConstantRange bufferRange{};
-	bufferRange.offset = 0;
-	bufferRange.size = sizeof(GPUDrawPushConstants);
-	bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
-	pipeline_layout_info.pPushConstantRanges = &bufferRange;
-	pipeline_layout_info.pushConstantRangeCount = 1;
-	pipeline_layout_info.pSetLayouts = &_singleImageDescriptorLayout;
-	pipeline_layout_info.setLayoutCount = 1;
-	VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_meshPipelineLayout));
-
-	PipelineBuilder pipelineBuilder;
-
-	// use the triangle layout we created
-	pipelineBuilder._pipelineLayout = _meshPipelineLayout;
-	// connecting the vertex and pixel shaders to the pipeline
-	pipelineBuilder.set_shaders(triangleVertexShader, triangleFragShader);
-	// it will draw triangles
-	pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-	// filled triangles
-	pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-	// no backface culling
-	pipelineBuilder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
-	// no multisampling
-	pipelineBuilder.set_multisampling_none();
-	// no blending
-	// pipelineBuilder.disable_blending();
-	pipelineBuilder.enable_blending_alphablend();
-
-	// pipelineBuilder.disable_depthtest();
-	pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-
-	// connect the image format we will draw into, from draw image
-	pipelineBuilder.set_color_attachment_format(_drawImage.imageFormat);
-	pipelineBuilder.set_depth_format(_depthImage.imageFormat);
-
-	// finally build the pipeline
-	_meshPipeline = pipelineBuilder.build_pipeline(_device);
-
-	// clean structures
-	vkDestroyShaderModule(_device, triangleFragShader, nullptr);
-	vkDestroyShaderModule(_device, triangleVertexShader, nullptr);
-
-	_mainDeletionQueue.push_function([&]() {
-		vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
-		vkDestroyPipeline(_device, _meshPipeline, nullptr);
 	});
 }
 
@@ -932,10 +841,8 @@ void VulkanEngine::init_default_data()
 										   VK_IMAGE_USAGE_SAMPLED_BIT);
 
 	VkSamplerCreateInfo sampl = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-
 	sampl.magFilter = VK_FILTER_NEAREST;
 	sampl.minFilter = VK_FILTER_NEAREST;
-
 	vkCreateSampler(_device, &sampl, nullptr, &_defaultSamplerNearest);
 
 	sampl.magFilter = VK_FILTER_LINEAR;
@@ -966,7 +873,6 @@ void VulkanEngine::init_default_data()
 	GLTFMetallic_Roughness::MaterialConstants *sceneUniformData = (GLTFMetallic_Roughness::MaterialConstants *)materialConstants.allocation->GetMappedData();
 	sceneUniformData->colorFactors = glm::vec4{1, 1, 1, 1};
 	sceneUniformData->metal_rough_factors = glm::vec4{1, 0.5, 0, 0};
-
 	_mainDeletionQueue.push_function([=, this]() {
 		destroy_buffer(materialConstants);
 	});
@@ -991,6 +897,20 @@ void VulkanEngine::init_default_data()
 
 		loadedNodes[m->name] = std::move(newNode);
 	}
+
+	std::string structurePath = {"..\\assets\\structure.glb"};
+	auto structureFile = loadGltf(this, structurePath);
+
+	assert(structureFile.has_value());
+
+	loadedScenes["structure"] = *structureFile;
+
+	// init camera
+	mainCamera.velocity = glm::vec3(0.f);
+	mainCamera.position = _origin;
+
+	mainCamera.pitch = 0;
+	mainCamera.yaw = 0;
 }
 
 void VulkanEngine::destroy_swapchain()
@@ -1467,13 +1387,9 @@ void VulkanEngine::run()
 		if (ImGui::Begin("background"))
 		{
 			ComputeEffect &selected = backgroundEffects[currentBackgroundEffect];
-
 			ImGui::SliderFloat("Render Scale", &renderScale, 0.3f, 1.f);
-
 			ImGui::Text("Selected effect: ", selected.name);
-
 			ImGui::SliderInt("Effect Index", &currentBackgroundEffect, 0, backgroundEffects.size() - 1);
-
 			ImGui::InputFloat4("data1", (float *)&selected.data.data1);
 			ImGui::InputFloat4("data2", (float *)&selected.data.data2);
 			ImGui::InputFloat4("data3", (float *)&selected.data.data3);
@@ -1481,13 +1397,15 @@ void VulkanEngine::run()
 		}
 		ImGui::End();
 
-		ImGui::Begin("Stats");
-		ImGui::Text("frametime %f ms", stats.frametime);
-		ImGui::Text("draw time %f ms", stats.mesh_draw_time);
-		ImGui::Text("update time %f ms", stats.scene_update_time);
-		ImGui::Text("triangles %i", stats.triangle_count);
-		ImGui::Text("draws %i", stats.drawcall_count);
-		ImGui::Text("x: %f, y: %f, z: %f", stats.camera_position.x, stats.camera_position.y, stats.camera_position.z);
+		if (ImGui::Begin("Stats"))
+		{
+			ImGui::Text("frametime %f ms", stats.frametime);
+			ImGui::Text("draw time %f ms", stats.mesh_draw_time);
+			ImGui::Text("update time %f ms", stats.scene_update_time);
+			ImGui::Text("triangles %i", stats.triangle_count);
+			ImGui::Text("draws %i", stats.drawcall_count);
+			ImGui::Text("x: %f, y: %f, z: %f", stats.camera_position.x, stats.camera_position.y, stats.camera_position.z);
+		}
 		ImGui::End();
 
 		// make imgui calculate internal draw structures
