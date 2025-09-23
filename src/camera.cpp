@@ -10,50 +10,32 @@ void Camera::update()
 
 void Camera::processSDLEvent(SDL_Event &e)
 {
-	if (e.type == SDL_KEYDOWN)
+	if (!dragging && e.type == SDL_MOUSEBUTTONDOWN &&
+		(e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_LEFT))
 	{
-		if (e.key.keysym.sym == SDLK_w)
-		{
-			velocity.z = -1;
-		}
-		if (e.key.keysym.sym == SDLK_s)
-		{
-			velocity.z = 1;
-		}
-		if (e.key.keysym.sym == SDLK_a)
-		{
-			velocity.x = -1;
-		}
-		if (e.key.keysym.sym == SDLK_d)
-		{
-			velocity.x = 1;
-		}
+		dragging = true;
+		SDL_SetRelativeMouseMode(SDL_TRUE);
+	}
+	else if (dragging && e.type == SDL_MOUSEBUTTONUP &&
+		(e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_LEFT))
+	{
+		dragging = false;
+		SDL_SetRelativeMouseMode(SDL_FALSE);
 	}
 
-	if (e.type == SDL_KEYUP)
+	if (dragging && e.type == SDL_MOUSEMOTION)
 	{
-		if (e.key.keysym.sym == SDLK_w)
-		{
-			velocity.z = 0;
-		}
-		if (e.key.keysym.sym == SDLK_s)
-		{
-			velocity.z = 0;
-		}
-		if (e.key.keysym.sym == SDLK_a)
-		{
-			velocity.x = 0;
-		}
-		if (e.key.keysym.sym == SDLK_d)
-		{
-			velocity.x = 0;
-		}
+		yaw = (float)e.motion.xrel / 200.f + yaw;
+		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel / 200.f, 1.25f), -1.25f);
 	}
 
-	if (e.type == SDL_MOUSEMOTION)
+	if (e.type == SDL_MOUSEWHEEL)
 	{
-		yaw += (float)e.motion.xrel / 200.f;
-		pitch -= (float)e.motion.yrel / 200.f;
+		distance -= (float)e.wheel.y * 0.3f;
+		if (distance < 1.5f)
+			distance = 1.5f;
+		if (distance > 20.f)
+			distance = 20.f;
 	}
 }
 
@@ -61,10 +43,11 @@ glm::mat4 Camera::getViewMatrix()
 {
 	// to create a correct model view, we need to move the world in opposite
 	// direction to the camera
-	//  so we will create the camera model matrix and invert
+	// so we will create the camera model matrix and invert
 	glm::mat4 cameraTranslation = glm::translate(glm::mat4(1.f), position);
 	glm::mat4 cameraRotation = getRotationMatrix();
-	return glm::inverse(cameraTranslation * cameraRotation);
+	glm::mat4 distanceTranslation = glm::translate(glm::vec3(0, 0, distance));
+	return glm::inverse(cameraTranslation * cameraRotation * distanceTranslation);
 }
 
 glm::mat4 Camera::getRotationMatrix()

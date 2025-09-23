@@ -38,6 +38,7 @@ struct EngineStats
 	int drawcall_count;
 	float scene_update_time;
 	float mesh_draw_time;
+	glm::vec3 camera_position;
 };
 
 struct ComputePushConstants
@@ -147,6 +148,7 @@ public:
 	bool stop_rendering{ false };
 	VkExtent2D _windowExtent{ 1700 , 900 };
 	bool resize_requested {false};
+	glm::vec3 _origin = glm::vec3{25.25f, -2.25f, -82.5f};
 
 	struct SDL_Window* _window{ nullptr };
 

@@ -67,7 +67,7 @@ void VulkanEngine::init()
 	_isInitialized = true;
 
 	mainCamera.velocity = glm::vec3(0.f);
-	mainCamera.position = glm::vec3(30.f, -00.f, -085.f);
+	mainCamera.position = _origin;
 
 	mainCamera.pitch = 0;
 	mainCamera.yaw = 0;
@@ -1373,13 +1373,12 @@ void VulkanEngine::update_scene()
 	// begin clock
 	auto start = std::chrono::system_clock::now();
 
-	glm::vec3 origin = glm::vec3{30.f, -00.f, -085.f};
-	loadedNodes["Suzanne"]->Draw(glm::translate(origin), mainDrawContext);
+	loadedNodes["Sphere"]->Draw(glm::translate(_origin), mainDrawContext);
 
 	for (int x = -3; x < 3; x++)
 	{
 		glm::mat4 scale = glm::scale(glm::vec3{0.2});
-		glm::mat4 translation = glm::translate(origin + glm::vec3{x + 0.5, glm::sin(_frameNumber / 120.0 + x), 0});
+		glm::mat4 translation = glm::translate(_origin + glm::vec3{x + 0.5, glm::sin(_frameNumber / 120.0 + x), 0});
 
 		loadedNodes["Suzanne"]->Draw(translation * scale, mainDrawContext);
 	}
@@ -1388,7 +1387,7 @@ void VulkanEngine::update_scene()
 
 	mainCamera.update();
 	glm::mat4 view = mainCamera.getViewMatrix();
-
+	stats.camera_position = mainCamera.position;
 	// camera projection
 	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
 
@@ -1416,7 +1415,7 @@ void VulkanEngine::run()
 	SDL_Event e;
 
 	// Capture and hide the mouse at startup
-	SDL_SetRelativeMouseMode(SDL_TRUE);
+	// SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	bool bQuit = false;
 
@@ -1488,6 +1487,7 @@ void VulkanEngine::run()
 		ImGui::Text("update time %f ms", stats.scene_update_time);
 		ImGui::Text("triangles %i", stats.triangle_count);
 		ImGui::Text("draws %i", stats.drawcall_count);
+		ImGui::Text("x: %f, y: %f, z: %f", stats.camera_position.x, stats.camera_position.y, stats.camera_position.z);
 		ImGui::End();
 
 		// make imgui calculate internal draw structures
