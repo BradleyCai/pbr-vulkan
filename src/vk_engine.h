@@ -183,14 +183,13 @@ public:
 	VkExtent2D _swapchainExtent;
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
-	VkDescriptorSetLayout _singleImageDescriptorLayout;
 	DrawContext mainDrawContext;
 	std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
 
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
 	std::vector<ComputeEffect> backgroundEffects;
-	int currentBackgroundEffect{1};
+	int currentBackgroundEffect{0};
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
 	std::vector<std::shared_ptr<MeshAsset>> testMeshes;
@@ -204,6 +203,7 @@ public:
 	AllocatedImage _blackImage;
 	AllocatedImage _greyImage;
 	AllocatedImage _errorCheckerboardImage;
+	AllocatedImage _exrTestImage; // TODO
 	VkSampler _defaultSamplerLinear;
 	VkSampler _defaultSamplerNearest;
 

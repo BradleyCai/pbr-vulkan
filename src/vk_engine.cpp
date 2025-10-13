@@ -244,6 +244,11 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D size, VkFormat format, VkIm
 AllocatedImage VulkanEngine::create_image(void *data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped)
 {
 	size_t data_size = size.depth * size.width * size.height * 4;
+	// TODO handle format sizes better
+	if (format == VK_FORMAT_R32G32B32A32_SFLOAT)
+	{
+		data_size = data_size * 4;
+	}
 	AllocatedBuffer uploadbuffer = create_buffer(data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 	memcpy(uploadbuffer.info.pMappedData, data, data_size);
@@ -400,9 +405,10 @@ void VulkanEngine::init_swapchain()
 
 	//draw image size will match the window
 	VkExtent3D drawImageExtent = {
-		2560,
-		1440,
-		1};
+		_windowExtent.width,
+		_windowExtent.height,
+		1
+	};
 
 	//hardcoding the draw format to 32 bit float
 	_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -498,19 +504,20 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptors()
 {
-	//create a descriptor pool that will hold 10 sets with 1 image each
+	//create a descriptor pool that will hold 10 sets
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes =
 	{
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }
 	};
-
 	globalDescriptorAllocator.init(_device, 10, sizes);
 
 	//make the descriptor set layout for our compute draw
 	{
 		DescriptorLayoutBuilder builder;
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+		builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 		_drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
 	}
 
@@ -518,21 +525,6 @@ void VulkanEngine::init_descriptors()
 		DescriptorLayoutBuilder builder;
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 		_gpuSceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-	}
-
-	{
-		DescriptorLayoutBuilder builder;
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		_singleImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_FRAGMENT_BIT);
-	}
-
-	//allocate a descriptor set for our draw image
-	_drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);
-	{
-		DescriptorWriter writer;
-		writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-
-		writer.update_set(_device, _drawImageDescriptors);
 	}
 
 	//make sure both the descriptor allocator and the new layout get cleaned up properly
@@ -587,7 +579,7 @@ void VulkanEngine::init_background_pipelines()
 	VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
 	VkShaderModule gradientShader;
-	if (!vkutil::load_shader_module("../shaders/gradient_color.comp.spv", _device, &gradientShader))
+	if (!vkutil::load_shader_module("../shaders/ibl_background.comp.spv", _device, &gradientShader))
 	{
 		fmt::print("Error when building the compute shader \n");
 	}
@@ -616,9 +608,7 @@ void VulkanEngine::init_background_pipelines()
 	gradient.name = "gradient";
 	gradient.data = {};
 
-	// default colors
 	gradient.data.data1 = glm::vec4(1, 0, 0, 1);
-	gradient.data.data2 = glm::vec4(0, 0, 1, 1);
 
 	VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradient.pipeline));
 
@@ -840,6 +830,15 @@ void VulkanEngine::init_default_data()
 	_errorCheckerboardImage = create_image(pixels.data(), VkExtent3D{32, 32, 1}, VK_FORMAT_R8G8B8A8_UNORM,
 										   VK_IMAGE_USAGE_SAMPLED_BIT);
 
+	std::optional<AllocatedImage> optionalExr = loadExr(this, "..\\assets\\test.exr");
+	fmt::println("Loading exr image");
+	if (optionalExr.has_value()) {
+		_exrTestImage = optionalExr.value();
+	} else {
+		_exrTestImage = _errorCheckerboardImage;
+		fmt::println("Failed to load exr image");
+	}
+
 	VkSamplerCreateInfo sampl = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
 	sampl.magFilter = VK_FILTER_NEAREST;
 	sampl.minFilter = VK_FILTER_NEAREST;
@@ -857,14 +856,15 @@ void VulkanEngine::init_default_data()
 		destroy_image(_greyImage);
 		destroy_image(_blackImage);
 		destroy_image(_errorCheckerboardImage);
+		destroy_image(_exrTestImage);
 	});
 
 	GLTFMetallic_Roughness::MaterialResources materialResources;
 	// default the material textures
 	materialResources.colorImage = _errorCheckerboardImage;
-	materialResources.colorSampler = _defaultSamplerNearest;
+	materialResources.colorSampler = _defaultSamplerLinear;
 	materialResources.metalRoughImage = _errorCheckerboardImage;
-	materialResources.metalRoughSampler = _defaultSamplerNearest;
+	materialResources.metalRoughSampler = _defaultSamplerLinear;
 
 	// set the uniform buffer for the material data
 	AllocatedBuffer materialConstants = create_buffer(sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -882,6 +882,16 @@ void VulkanEngine::init_default_data()
 
 	defaultData = metalRoughMaterial.write_material(_device, MaterialPass::MainColor, materialResources, globalDescriptorAllocator);
 
+	//allocate a descriptor set for our draw image
+	_drawImageDescriptors = globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
+	{
+		DescriptorWriter writer;
+		writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+		writer.write_image(1, _exrTestImage.imageView, _defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+		writer.update_set(_device, _drawImageDescriptors);
+	}
+
 	for (auto &m : testMeshes)
 	{
 		std::shared_ptr<MeshNode> newNode = std::make_shared<MeshNode>();
@@ -897,13 +907,6 @@ void VulkanEngine::init_default_data()
 
 		loadedNodes[m->name] = std::move(newNode);
 	}
-
-	std::string structurePath = {"..\\assets\\structure.glb"};
-	auto structureFile = loadGltf(this, structurePath);
-
-	assert(structureFile.has_value());
-
-	loadedScenes["structure"] = *structureFile;
 
 	// init camera
 	mainCamera.velocity = glm::vec3(0.f);
@@ -977,6 +980,7 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 	// bind the descriptor set containing the draw image for the compute pipeline
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
 
+	effect.data.data4 = glm::vec4(mainCamera.yaw, mainCamera.pitch, 0, mainCamera.fov);
 	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
 	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
 	vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
@@ -985,7 +989,7 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
 {
 	VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-	VkRenderingInfo renderInfo = vkinit::rendering_info(_swapchainExtent, &colorAttachment, nullptr);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(_windowExtent, &colorAttachment, nullptr);
 
 	vkCmdBeginRendering(cmd, &renderInfo);
 
@@ -1026,7 +1030,7 @@ void VulkanEngine::draw()
 	_drawExtent.height = std::min(_swapchainExtent.height, _drawImage.imageExtent.height) * renderScale;
 	_drawExtent.width = std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * renderScale;
 
-	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));	
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
 	// transition our main draw image into general layout so we can write into it
 	// we will overwrite it all so we dont care about what was the older layout
@@ -1088,9 +1092,10 @@ void VulkanEngine::draw()
 	presentInfo.pImageIndices = &swapchainImageIndex;
 
 	VkResult presentResult = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
-	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR)
+	if (e == VK_ERROR_OUT_OF_DATE_KHR)
 	{
 		resize_requested = true;
+		return;
 	}
 
 	//increase the number of frames drawn
@@ -1303,13 +1308,11 @@ void VulkanEngine::update_scene()
 		loadedNodes["Suzanne"]->Draw(translation * scale, mainDrawContext);
 	}
 
-	loadedScenes["structure"]->Draw(glm::mat4{1.f}, mainDrawContext);
-
 	mainCamera.update();
 	glm::mat4 view = mainCamera.getViewMatrix();
 	stats.camera_position = mainCamera.position;
 	// camera projection
-	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+	glm::mat4 projection = glm::perspective(glm::radians(mainCamera.fov), (float)_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
 
 	// invert the Y direction on projection matrix so that we are more similar
 	// to opengl and gltf axis
@@ -1351,19 +1354,17 @@ void VulkanEngine::run()
 			if (e.type == SDL_QUIT)
 				bQuit = true;
 
-			mainCamera.processSDLEvent(e);
-			ImGui_ImplSDL2_ProcessEvent(&e);
-
 			if (e.type == SDL_WINDOWEVENT) {
-				if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) {
+				if (e.window.event == SDL_WINDOWEVENT_RESIZED)
+					resize_requested = true;
+				if (e.window.event == SDL_WINDOWEVENT_MINIMIZED)
 					stop_rendering = true;
-				}
-				if (e.window.event == SDL_WINDOWEVENT_RESTORED) {
+				if (e.window.event == SDL_WINDOWEVENT_RESTORED)
 					stop_rendering = false;
-				}
 			}
 
 			// send SDL event to imgui for handling
+			mainCamera.processSDLEvent(e);
 			ImGui_ImplSDL2_ProcessEvent(&e);
 		}
 

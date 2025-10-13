@@ -26,7 +26,7 @@ void Camera::processSDLEvent(SDL_Event &e)
 	if (dragging && e.type == SDL_MOUSEMOTION)
 	{
 		yaw = (float)e.motion.xrel / 200.f + yaw;
-		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel / 200.f, 1.25f), -1.25f);
+		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel / 200.f, 3.14f/2.f), -3.14f/2.f);
 	}
 
 	if (e.type == SDL_MOUSEWHEEL)

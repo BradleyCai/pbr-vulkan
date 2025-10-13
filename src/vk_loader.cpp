@@ -11,7 +11,8 @@
 #include <fastgltf/parser.hpp>
 #include <fastgltf/tools.hpp>
 
-#include <vk_loader.h>
+#define TINYEXR_IMPLEMENTATION
+#include "tinyexr.h"
 
 std::optional<std::vector<std::shared_ptr<MeshAsset>>> loadGltfMeshes(VulkanEngine *engine, std::filesystem::path filePath)
 {
@@ -175,7 +176,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
 	AllocatedImage newImage{};
 
 	int width, height, nrChannels;
-	bool mipmapped = false;
+	bool mipmapped = true;
 
 	std::visit(
 		fastgltf::visitor{
@@ -358,8 +359,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 		}
 		else
 		{
-			// we failed to load, so lets give the slot a default white texture to not
-			// completely break loading
 			images.push_back(engine->_errorCheckerboardImage);
 			std::cout << "gltf failed to load texture " << image.name << std::endl;
 		}
@@ -644,4 +643,31 @@ void LoadedGLTF::clearAll()
 	{
 		vkDestroySampler(dv, sampler, nullptr);
 	}
+}
+
+std::optional<AllocatedImage> loadExr(VulkanEngine *engine, std::string_view filePath)
+{
+	int width, height, channels;
+	float* exr_data;
+	const char *err = nullptr;
+	int ret = LoadEXR(&exr_data, &width, &height, filePath.data(), &err);
+	if (ret != TINYEXR_SUCCESS)
+	{
+		fmt::println("Failed to load EXR image: {}", filePath);
+		if (err)
+			fmt::println("{}", err);
+		FreeEXRErrorMessage(err);
+		return {};
+	}
+
+	VkExtent3D imagesize;
+	imagesize.width = width;
+	imagesize.height = height;
+	imagesize.depth = 1;
+
+	AllocatedImage newImage = engine->create_image(exr_data, imagesize, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+
+	free(exr_data);
+
+	return newImage;
 }
