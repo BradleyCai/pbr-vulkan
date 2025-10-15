@@ -67,10 +67,11 @@ void main() {
 	vec3 N = inNormal; // TODO is this really needed
 	vec3 V = normalize(camPos - inWorldPos);
 
+	vec4 baseColor = texture(colorTex, inUV);
 	vec4 metalRough = texture(metalRoughTex, inUV);
 	float roughness = metalRough.g * materialData.metal_rough_factors.g;
 	float metallic = metalRough.b * materialData.metal_rough_factors.b;
-	vec3 albedo = texture(colorTex, inUV).rgb * materialData.colorFactors.rgb;
+	vec3 albedo = baseColor.rgb * materialData.colorFactors.rgb;
 	float ao = metalRough.a;
 
 	vec3 F0 = vec3(0.04);
@@ -112,5 +113,5 @@ void main() {
 	color = color / (color + vec3(1.0));
 	color = pow(color, vec3(1.0 / 2.2));
 
-	outFragColor = vec4(color, 1.0);
+	outFragColor = vec4(color, baseColor.a);
 }

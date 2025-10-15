@@ -687,7 +687,7 @@ void GLTFMetallic_Roughness::build_pipelines(VulkanEngine *engine)
 	pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
 	pipelineBuilder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
 	pipelineBuilder.set_multisampling_none();
-	pipelineBuilder.disable_blending();
+	pipelineBuilder.enable_blending_alphablend();
 	pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
 	// render format
@@ -916,6 +916,10 @@ void VulkanEngine::init_default_data()
 	auto helmetFile = loadGltf(this, "..\\assets\\DamagedHelmet.glb");
 	assert(helmetFile.has_value());
 	loadedScenes["helmet"] = *helmetFile;
+
+	// auto structureFile = loadGltf(this, "..\\assets\\structure.glb");
+	// assert(structureFile.has_value());
+	// loadedScenes["structure"] = *structureFile;
 
 	// init camera
 	mainCamera.velocity = glm::vec3(0.f);
@@ -1308,6 +1312,7 @@ void VulkanEngine::update_scene()
 	auto start = std::chrono::system_clock::now();
 
 	// loadedScenes["metalRoughSpheres"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
+	// loadedScenes["structure"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
 	loadedScenes["helmet"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
 	// loadedNodes["Sphere"]->Draw(glm::translate(_origin), mainDrawContext);
 
