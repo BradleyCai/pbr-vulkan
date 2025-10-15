@@ -641,13 +641,13 @@ void VulkanEngine::init_background_pipelines()
 void GLTFMetallic_Roughness::build_pipelines(VulkanEngine *engine)
 {
 	VkShaderModule meshFragShader;
-	if (!vkutil::load_shader_module("../shaders/mesh.frag.spv", engine->_device, &meshFragShader))
+	if (!vkutil::load_shader_module("../shaders/mesh_pbr.frag.spv", engine->_device, &meshFragShader))
 	{
 		fmt::println("Error when building the triangle fragment shader module");
 	}
 
 	VkShaderModule meshVertexShader;
-	if (!vkutil::load_shader_module("../shaders/mesh.vert.spv", engine->_device, &meshVertexShader))
+	if (!vkutil::load_shader_module("../shaders/mesh_pbr.vert.spv", engine->_device, &meshVertexShader))
 	{
 		fmt::println("Error when building the triangle vertex shader module");
 	}
@@ -871,8 +871,9 @@ void VulkanEngine::init_default_data()
 
 	// write the buffer
 	GLTFMetallic_Roughness::MaterialConstants *sceneUniformData = (GLTFMetallic_Roughness::MaterialConstants *)materialConstants.allocation->GetMappedData();
+	// hardcode values not from the gltf file
 	sceneUniformData->colorFactors = glm::vec4{1, 1, 1, 1};
-	sceneUniformData->metal_rough_factors = glm::vec4{1, 0.5, 0, 0};
+	sceneUniformData->metal_rough_factors = glm::vec4{0, 0.5, 0, 0}; // metal B channel, rough G channel
 	_mainDeletionQueue.push_function([=, this]() {
 		destroy_buffer(materialConstants);
 	});
@@ -907,6 +908,14 @@ void VulkanEngine::init_default_data()
 
 		loadedNodes[m->name] = std::move(newNode);
 	}
+
+	auto metalRoughSpheresFile = loadGltf(this, "..\\assets\\MetalRoughSpheres.glb");
+	assert(metalRoughSpheresFile.has_value());
+	loadedScenes["metalRoughSpheres"] = *metalRoughSpheresFile;
+
+	auto helmetFile = loadGltf(this, "..\\assets\\DamagedHelmet.glb");
+	assert(helmetFile.has_value());
+	loadedScenes["helmet"] = *helmetFile;
 
 	// init camera
 	mainCamera.velocity = glm::vec3(0.f);
@@ -1298,15 +1307,17 @@ void VulkanEngine::update_scene()
 	// begin clock
 	auto start = std::chrono::system_clock::now();
 
-	loadedNodes["Sphere"]->Draw(glm::translate(_origin), mainDrawContext);
+	// loadedScenes["metalRoughSpheres"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
+	loadedScenes["helmet"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
+	// loadedNodes["Sphere"]->Draw(glm::translate(_origin), mainDrawContext);
 
-	for (int x = -3; x < 3; x++)
-	{
-		glm::mat4 scale = glm::scale(glm::vec3{0.2});
-		glm::mat4 translation = glm::translate(_origin + glm::vec3{x + 0.5, glm::sin(_frameNumber / 120.0 + x), 0});
+	// for (int x = -3; x < 3; x++)
+	// {
+	// 	glm::mat4 scale = glm::scale(glm::vec3{0.2});
+	// 	glm::mat4 translation = glm::translate(_origin + glm::vec3{x + 0.5, glm::sin(_frameNumber / 120.0 + x), 0});
 
-		loadedNodes["Suzanne"]->Draw(translation * scale, mainDrawContext);
-	}
+	// 	loadedNodes["Suzanne"]->Draw(translation * scale, mainDrawContext);
+	// }
 
 	mainCamera.update();
 	glm::mat4 view = mainCamera.getViewMatrix();
@@ -1325,6 +1336,13 @@ void VulkanEngine::update_scene()
 	sceneData.ambientColor = glm::vec4(.1f);
 	sceneData.sunlightColor = glm::vec4(1.f);
 	sceneData.sunlightDirection = glm::vec4(0, 1, 0.5, 1.f);
+	for (int light = 0; light < 4; light++) {
+		sceneData.lightColors[light] = 50.f * glm::vec3(1.f, 1.f, 1.f);
+	}
+	sceneData.lightPosition[0] = _origin + glm::vec3(5.f, 1.f, 5.f);
+	sceneData.lightPosition[1] = _origin + glm::vec3(5.f, 0.5f, -5.f);
+	sceneData.lightPosition[2] = _origin + glm::vec3(-5.f, -0.5f, -5.f);
+	sceneData.lightPosition[3] = _origin + glm::vec3(-5.f, -1.f, 5.f);
 
 	auto end = std::chrono::system_clock::now();
 	// convert to microseconds (integer), and then come back to miliseconds

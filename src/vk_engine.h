@@ -79,6 +79,8 @@ struct GPUSceneData
 	glm::vec4 ambientColor;
 	glm::vec4 sunlightDirection; // w for sun power
 	glm::vec4 sunlightColor;
+	glm::vec3 lightPosition[4];
+	glm::vec3 lightColors[4];
 };
 
 struct RenderObject
@@ -148,7 +150,7 @@ public:
 	bool stop_rendering{ false };
 	VkExtent2D _windowExtent{ 1700 , 900 };
 	bool resize_requested {false};
-	glm::vec3 _origin = glm::vec3{25.25f, -2.25f, -82.5f};
+	glm::vec3 _origin = glm::vec3{0, 0, 0};//glm::vec3{25.25f, -2.25f, -82.5f};
 
 	struct SDL_Window* _window{ nullptr };
 

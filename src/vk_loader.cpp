@@ -264,7 +264,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
 
 std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::string_view filePath)
 {
-	fmt::print("Loading GLTF: {}", filePath);
+	fmt::println("Loading GLTF: {}", filePath);
 
 	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
 	scene->creator = engine;
@@ -382,8 +382,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 		constants.colorFactors.z = mat.pbrData.baseColorFactor[2];
 		constants.colorFactors.w = mat.pbrData.baseColorFactor[3];
 
-		constants.metal_rough_factors.x = mat.pbrData.metallicFactor;
-		constants.metal_rough_factors.y = mat.pbrData.roughnessFactor;
+		// metal B channel, rough G channel
+		constants.metal_rough_factors.b = mat.pbrData.metallicFactor;
+		constants.metal_rough_factors.g = mat.pbrData.roughnessFactor;
 		// write material parameters to buffer
 		sceneMaterialConstants[data_index] = constants;
 
@@ -395,9 +396,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 
 		GLTFMetallic_Roughness::MaterialResources materialResources;
 		// default the material textures
-		materialResources.colorImage = engine->_whiteImage;
+		materialResources.colorImage = engine->_errorCheckerboardImage;
 		materialResources.colorSampler = engine->_defaultSamplerLinear;
-		materialResources.metalRoughImage = engine->_whiteImage;
+		materialResources.metalRoughImage = engine->_greyImage;
 		materialResources.metalRoughSampler = engine->_defaultSamplerLinear;
 
 		// set the uniform buffer for the material data
@@ -411,6 +412,25 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 
 			materialResources.colorImage = images[img];
 			materialResources.colorSampler = file.samplers[sampler];
+		}
+		
+		//fastgltf::MaterialPackedTextures packedORM = mat.packedOcclusionRoughnessMetallicTextures->occlusionRoughnessMetallicTexture
+		if (mat.packedOcclusionRoughnessMetallicTextures && mat.packedOcclusionRoughnessMetallicTextures->occlusionRoughnessMetallicTexture.has_value())
+		{
+			const fastgltf::TextureInfo& ormTexture = mat.packedOcclusionRoughnessMetallicTextures->occlusionRoughnessMetallicTexture.value();
+			size_t img = gltf.textures[ormTexture.textureIndex].imageIndex.value();
+			size_t sampler = gltf.textures[ormTexture.textureIndex].samplerIndex.value();
+			
+			materialResources.metalRoughImage = images[img];
+			materialResources.metalRoughSampler = file.samplers[sampler];
+		}
+		else if (mat.pbrData.metallicRoughnessTexture.has_value())
+		{
+			size_t img = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+			size_t sampler = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value();
+
+			materialResources.metalRoughImage = images[img];
+			materialResources.metalRoughSampler = file.samplers[sampler];
 		}
 		// build material
 		newMat->data = engine->metalRoughMaterial.write_material(engine->_device, passType, materialResources, file.descriptorPool);
