@@ -9,6 +9,7 @@ layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec3 outColor;
 layout(location = 2) out vec2 outUV;
 layout(location = 3) out vec3 outWorldPos;
+layout(location = 4) out vec4 outTangent;
 
 struct Vertex {
 	vec3 position;
@@ -16,6 +17,7 @@ struct Vertex {
 	vec3 normal;
 	float uv_y;
 	vec4 color;
+	vec4 tangent;
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer {
@@ -37,6 +39,7 @@ void main() {
 	gl_Position = sceneData.viewproj * global_pos;
 
 	outNormal = normalize((PushConstants.worldMatrix * vec4(v.normal, 0.0)).xyz);
+	outTangent = normalize(PushConstants.worldMatrix * v.tangent);
 	outColor = v.color.xyz * materialData.colorFactors.xyz;
 	outUV.x = v.uv_x;
 	outUV.y = v.uv_y;

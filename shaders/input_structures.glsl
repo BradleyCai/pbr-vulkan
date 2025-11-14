@@ -11,15 +11,18 @@ layout(set = 0, binding = 0) uniform SceneData {
 	vec3 lightColors[4];
 } sceneData;
 
+layout(set = 0, binding = 1) uniform sampler2D skyTexture;
+
 layout(set = 1, binding = 0) uniform GLTFMaterialData {
 	vec4 colorFactors;
 	vec4 metal_rough_factors;
+	vec3 emissiveFactors;
+	float normalScale;
+	float emissiveStrength;
 } materialData;
 
 layout(set = 1, binding = 1) uniform sampler2D colorTex;
-layout(set = 1, binding = 2) uniform sampler2D metalRoughTex;
-// // material parameters
-// vec3 albedo;
-// float metallic;
-// float roughness;
-// float ao;
+layout(set = 1, binding = 2) uniform sampler2D normalTex;
+layout(set = 1, binding = 3) uniform sampler2D metalRoughTex;
+layout(set = 1, binding = 4) uniform sampler2D occlusionTex;
+layout(set = 1, binding = 5) uniform sampler2D emissiveTex;

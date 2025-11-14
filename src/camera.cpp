@@ -25,7 +25,7 @@ void Camera::processSDLEvent(SDL_Event &e)
 
 	if (dragging && e.type == SDL_MOUSEMOTION)
 	{
-		yaw = (float)e.motion.xrel / 200.f + yaw;
+		yaw = - (float)e.motion.xrel / 200.f + yaw;
 		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel / 200.f, 3.14f/2.f), -3.14f/2.f);
 	}
 
@@ -56,7 +56,7 @@ glm::mat4 Camera::getRotationMatrix()
 	// the final rotation matrix
 	glm::quat pitchRotation = glm::angleAxis(pitch, glm::vec3{1.f, 0.f, 0.f});
 	glm::quat yawRotation = glm::angleAxis(yaw, glm::vec3{0.f, 1.f, 0.f});
-	glm::quat rollRotation = glm::angleAxis(3.14f, glm::vec3{0.f, 0.f, 1.f});
+	glm::quat rollRotation = glm::angleAxis(0.0f, glm::vec3{0.f, 0.f, 1.f});
 
 	return glm::toMat4(yawRotation) * glm::toMat4(pitchRotation) * glm::toMat4(rollRotation);
 }

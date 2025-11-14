@@ -7,10 +7,12 @@ layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec3 inColor;
 layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec3 inWorldPos;
+layout(location = 4) in vec4 inTangent;
 
 layout(location = 0) out vec4 outFragColor;
 
 const float PI = 3.14159265359;
+const float TAU = 6.28318530718;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
 	float a      = roughness*roughness;
@@ -61,19 +63,52 @@ vec3 GetCameraPositionFromViewMatrix(mat4 view)
 	return cameraPos;
 }
 
+vec3 tonemapFilmic(vec3 color, float white) {
+	// exposure bias: input scale (color *= bias, white *= bias) to make the brightness consistent with other tonemappers
+	// also useful to scale the input to the range that the tonemapper is designed for (some require very high input values)
+	// has no effect on the curve's general shape or visual properties
+	const float exposure_bias = 2.0f;
+	const float A = 0.22f * exposure_bias * exposure_bias; // bias baked into constants for performance
+	const float B = 0.30f * exposure_bias;
+	const float C = 0.10f;
+	const float D = 0.20f;
+	const float E = 0.01f;
+	const float F = 0.30f;
+
+	vec3 color_tonemapped = ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+	float white_tonemapped = ((white * (A * white + C * B) + D * E) / (white * (A * white + B) + D * F)) - E / F;
+
+	return color_tonemapped / white_tonemapped;
+}
+
+// input view right handed, y up, and z forward
+// image coordinates start from top left
+vec2 dirToRectilinear(vec3 dir) {
+	float x = atan(dir.x, dir.z) / TAU + 0.5;
+	float y = 1.0 - dir.y * 0.5 + 0.5;
+	return vec2(x, y);
+}
+
 void main() {
 	vec3 camPos = GetCameraPositionFromViewMatrix(sceneData.view);
 
-	vec3 N = inNormal; // TODO is this really needed
+	mat3 TBN = mat3(normalize(inTangent.xyz), normalize(cross(inNormal, inTangent.xyz)), normalize(inNormal));
+
+	vec3 N = texture(normalTex, inUV).rgb * materialData.normalScale;
+	N = N * 2.0 - 1.0;
+	N = normalize(TBN * N);
+
+	// vec3 N = normalize(inNormal);
 	vec3 V = normalize(camPos - inWorldPos);
 
 	vec4 baseColor = texture(colorTex, inUV);
+	vec3 emissive = texture(emissiveTex, inUV).rgb * materialData.emissiveFactors * materialData.emissiveStrength;
 	vec4 metalRough = texture(metalRoughTex, inUV);
+	float ao = texture(occlusionTex, inUV).r * materialData.metal_rough_factors.r;
 	float roughness = metalRough.g * materialData.metal_rough_factors.g;
 	float metallic = metalRough.b * materialData.metal_rough_factors.b;
-	vec3 albedo = baseColor.rgb * materialData.colorFactors.rgb;
-	float ao = metalRough.a;
-
+	vec3 albedo = baseColor.rgb * materialData.colorFactors.rgb + emissive;
+	
 	vec3 F0 = vec3(0.04);
 	F0 = mix(F0, albedo, metallic);
 
@@ -110,7 +145,8 @@ void main() {
 	vec3 ambient = vec3(0.03) * albedo * ao;
 	vec3 color = ambient + Lo;
 
-	color = color / (color + vec3(1.0));
+	// color = color / (color + vec3(1.0));
+	color = tonemapFilmic(color, 1.0);
 	color = pow(color, vec3(1.0 / 2.2));
 
 	outFragColor = vec4(color, baseColor.a);

@@ -39,3 +39,5 @@ add_custom_target(
     Shaders 
     DEPENDS ${SPIRV_BINARY_FILES}
     )
+
+add_dependencies(engine Shaders)

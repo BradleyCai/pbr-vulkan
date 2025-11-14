@@ -111,17 +111,24 @@ struct GLTFMetallic_Roughness
 	struct MaterialConstants
 	{
 		glm::vec4 colorFactors;
-		glm::vec4 metal_rough_factors;
-		// padding, we need it anyway for uniform buffers
-		glm::vec4 extra[14];
+		glm::vec4 metal_rough_factors; // occlusion R channel, rough G channel, metal B channel
+		glm::vec3 emissiveFactors;
+		float normalScale;
+		float emissiveStrength;
 	};
 
 	struct MaterialResources
 	{
 		AllocatedImage colorImage;
 		VkSampler colorSampler;
+		AllocatedImage normalImage;
+		VkSampler normalSampler;
 		AllocatedImage metalRoughImage;
 		VkSampler metalRoughSampler;
+		AllocatedImage occlusionImage;
+		VkSampler occlusionSampler;
+		AllocatedImage emissiveImage;
+		VkSampler emissiveSampler;
 		VkBuffer dataBuffer;
 		uint32_t dataBufferOffset;
 	};
@@ -204,6 +211,7 @@ public:
 	AllocatedImage _whiteImage;
 	AllocatedImage _blackImage;
 	AllocatedImage _greyImage;
+	AllocatedImage _defaultNormalImage;
 	AllocatedImage _errorCheckerboardImage;
 	AllocatedImage _exrTestImage; // TODO
 	VkSampler _defaultSamplerLinear;
