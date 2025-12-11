@@ -5,6 +5,7 @@
 #include "vk_engine.h"
 #include "vk_initializers.h"
 #include "vk_types.h"
+#include "vk_images.h"
 #include <glm/gtx/quaternion.hpp>
 
 #include <fastgltf/glm_element_traits.hpp>
@@ -13,6 +14,9 @@
 
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr.h"
+
+#include <ktx.h>
+#include <ktxvulkan.h>
 
 std::optional<std::vector<std::shared_ptr<MeshAsset>>> loadGltfMeshes(VulkanEngine *engine, std::filesystem::path filePath)
 {
@@ -728,7 +732,7 @@ void LoadedGLTF::clearAll()
 
 std::optional<AllocatedImage> loadExr(VulkanEngine *engine, std::string_view filePath)
 {
-	int width, height, channels;
+	int width, height;
 	float* exr_data;
 	const char *err = nullptr;
 	int ret = LoadEXR(&exr_data, &width, &height, filePath.data(), &err);
@@ -746,9 +750,81 @@ std::optional<AllocatedImage> loadExr(VulkanEngine *engine, std::string_view fil
 	imagesize.height = height;
 	imagesize.depth = 1;
 
-	AllocatedImage newImage = engine->create_image(exr_data, imagesize, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+	AllocatedImage newImage = engine->create_image(exr_data, imagesize, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, false);
 
 	free(exr_data);
+
+	return newImage;
+}
+
+std::optional<AllocatedImage> loadKtx(VulkanEngine *engine, std::string_view filePath)
+{
+	ktxTexture *ktxTex;
+	KTX_error_code result = ktxTexture_CreateFromNamedFile(filePath.data(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTex);
+	if (result != KTX_SUCCESS)
+	{
+		fmt::println("Failed to load KTX image: {}", filePath);
+		return {};
+	}
+
+	uint32_t width = ktxTex->baseWidth;
+	uint32_t height = ktxTex->baseHeight;
+	uint32_t mipLevels = ktxTex->numLevels;
+
+	VkImageCreateInfo img_info = vkinit::image_create_info(VK_FORMAT_R16G16B16A16_SFLOAT,
+														   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+														   VkExtent3D{width, height, 1});
+	img_info.mipLevels = mipLevels;
+	
+	AllocatedImage newImage = engine->create_image(img_info, false);
+
+	ktx_size_t ktxDataSize = ktxTexture_GetDataSize(ktxTexture(ktxTex));
+	const void *ktxData = ktxTexture_GetData(ktxTexture(ktxTex));
+	
+	AllocatedBuffer uploadbuffer = engine->create_buffer(ktxDataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	memcpy(uploadbuffer.info.pMappedData, ktxData, ktxDataSize);
+
+	std::vector<VkBufferImageCopy> regions;
+	regions.reserve(mipLevels);
+
+	for (uint32_t level = 0; level < mipLevels; ++level)
+	{
+		ktx_size_t offset;
+		KTX_error_code getOffsetResult = ktxTexture_GetImageOffset(ktxTexture(ktxTex), level, 0, 0, &offset);
+		if (getOffsetResult != KTX_SUCCESS)
+		{
+			throw std::runtime_error("Failed to get KTX mip offset");
+		}
+
+		VkBufferImageCopy region{};
+		region.bufferOffset = offset;
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = level;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+
+		region.imageExtent = {
+			std::max(1u, width >> level),
+			std::max(1u, height >> level),
+			1};
+
+		regions.push_back(region);
+	}
+
+	engine->immediate_submit([&](VkCommandBuffer cmd) {
+		vkutil::transition_image(cmd, newImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		vkCmdCopyBufferToImage(cmd, uploadbuffer.buffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			static_cast<uint32_t>(regions.size()), regions.data());
+
+		vkutil::transition_image(cmd, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	});
+
+	ktxTexture_Destroy(ktxTexture(ktxTex));
+	engine->destroy_buffer(uploadbuffer);
 
 	return newImage;
 }

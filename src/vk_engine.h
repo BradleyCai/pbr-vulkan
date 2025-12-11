@@ -71,16 +71,24 @@ struct FrameData
 	DescriptorAllocatorGrowable _frameDescriptors;
 };
 
+struct SceneSettings
+{
+	float ambientStrength;
+	float _pad1;
+	float _pad2;
+	float _pad3;
+};
+
 struct GPUSceneData
 {
 	glm::mat4 view;
 	glm::mat4 proj;
 	glm::mat4 viewproj;
-	glm::vec4 ambientColor;
 	glm::vec4 sunlightDirection; // w for sun power
 	glm::vec4 sunlightColor;
-	glm::vec3 lightPosition[4];
-	glm::vec3 lightColors[4];
+	glm::vec4 lightPositions[4]; // w used for range
+	glm::vec4 lightColors[4]; // w used for energy
+	SceneSettings settings;
 };
 
 struct RenderObject
@@ -179,9 +187,7 @@ public:
 	VkCommandPool _immCommandPool;
 
 	//draw resources
-	AllocatedImage _drawImage;
 	AllocatedImage _depthImage;
-	VkExtent2D _drawExtent;
 	float renderScale = 1.f;
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame() { return _frames[_frameNumber % FRAME_OVERLAP]; };
@@ -190,17 +196,25 @@ public:
 	std::vector<VkImage> _swapchainImages;
 	std::vector<VkImageView> _swapchainImageViews;
 	VkExtent2D _swapchainExtent;
-	VkDescriptorSet _drawImageDescriptors;
-	VkDescriptorSetLayout _drawImageDescriptorLayout;
+	VkDescriptorSet _storageImageDescriptorSet;
+	VkDescriptorSetLayout _storageImageDescriptorLayout;
 	DrawContext mainDrawContext;
 	std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
 
-	VkPipeline _gradientPipeline;
-	VkPipelineLayout _gradientPipelineLayout;
 	std::vector<ComputeEffect> backgroundEffects;
 	int currentBackgroundEffect{0};
-	VkPipelineLayout _meshPipelineLayout;
-	VkPipeline _meshPipeline;
+	VkPipelineLayout _backgroundImagePipelineLayout;
+	ComputeEffect _skyBackgroundCompute;
+	AllocatedImage _backgroundDrawImage;
+	VkExtent2D _backgroundDrawImageExtent;
+	AllocatedImage _skyTexture;
+	AllocatedImage _skyRadiance;
+	AllocatedImage _skyIrradiance;
+	VkSampler _skySampler;
+	VkSampler _skyRadianceSampler;
+	ComputeEffect _brdfLUTCompute;
+	VkExtent3D _brdfLUTExtent{512, 512, 1};
+	AllocatedImage _brdfLUTImage;
 	std::vector<std::shared_ptr<MeshAsset>> testMeshes;
 	GPUSceneData sceneData;
 	VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
@@ -213,7 +227,6 @@ public:
 	AllocatedImage _greyImage;
 	AllocatedImage _defaultNormalImage;
 	AllocatedImage _errorCheckerboardImage;
-	AllocatedImage _exrTestImage; // TODO
 	VkSampler _defaultSamplerLinear;
 	VkSampler _defaultSamplerNearest;
 
@@ -228,7 +241,7 @@ public:
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroy_buffer(const AllocatedBuffer &buffer);
 	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
-	AllocatedImage create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	AllocatedImage create_image(VkImageCreateInfo img_info, bool mipmapped = false);
 	AllocatedImage create_image(void* data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
 	void destroy_image(const AllocatedImage& img);
 
@@ -250,6 +263,7 @@ private:
 	void init_background_pipelines();
 	void init_imgui();
 	void init_default_data();
+	void init_brdf_lut();
 
 	void draw_geometry(VkCommandBuffer cmd);
 	void draw_background(VkCommandBuffer cmd);

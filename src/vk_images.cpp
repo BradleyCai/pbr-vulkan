@@ -70,7 +70,6 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ima
 	int mipLevels = int(std::floor(std::log2(std::max(imageSize.width, imageSize.height)))) + 1;
 	for (int mip = 0; mip < mipLevels; mip++)
 	{
-
 		VkExtent2D halfSize = imageSize;
 		halfSize.width /= 2;
 		halfSize.height /= 2;

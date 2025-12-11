@@ -50,6 +50,11 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+	return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
 // TODO
 vec3 GetCameraPositionFromViewMatrix(mat4 view)
 {
@@ -85,7 +90,7 @@ vec3 tonemapFilmic(vec3 color, float white) {
 // image coordinates start from top left
 vec2 dirToRectilinear(vec3 dir) {
 	float x = atan(dir.x, dir.z) / TAU + 0.5;
-	float y = 1.0 - dir.y * 0.5 + 0.5;
+	float y = 1.0 - (dir.y * 0.5 + 0.5);
 	return vec2(x, y);
 }
 
@@ -108,7 +113,7 @@ void main() {
 	float roughness = metalRough.g * materialData.metal_rough_factors.g;
 	float metallic = metalRough.b * materialData.metal_rough_factors.b;
 	vec3 albedo = baseColor.rgb * materialData.colorFactors.rgb + emissive;
-	
+
 	vec3 F0 = vec3(0.04);
 	F0 = mix(F0, albedo, metallic);
 
@@ -116,13 +121,13 @@ void main() {
 	vec3 Lo = vec3(0.0);
 	for(int i = 0; i < 4; ++i) {
 		// calculate per-light radiance
-		vec3 L = normalize(sceneData.lightPositions[i] - inWorldPos);
+		vec3 L = normalize(sceneData.lightPositions[i].xyz - inWorldPos);
 		vec3 H = normalize(V + L);
 		// TODO look into how to set up these properties in the light itself
-		float distance = length(sceneData.lightPositions[i] - inWorldPos);
+		float distance = length(sceneData.lightPositions[i].xyz - inWorldPos);
 		// float attenuation = 0.5;
 		float attenuation = 1.0 / (distance * distance * 0.5);
-		vec3 radiance = sceneData.lightColors[i] * attenuation;
+		vec3 radiance = sceneData.lightColors[i].rgb * sceneData.lightColors[i].w * attenuation;
 
 		// cook-torrance brdf
 		float NDF = DistributionGGX(N, H, roughness);
@@ -142,12 +147,29 @@ void main() {
 		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
 	}
 
-	vec3 ambient = vec3(0.03) * albedo * ao;
+	vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+
+	vec3 kS = F;
+	vec3 kD = 1.0 - kS;
+	kD *= 1.0 - metallic;
+
+	vec3 irradiance = texture(skyIrradiance, dirToRectilinear(N)).rgb;
+	vec3 diffuse = irradiance * albedo;
+
+	const float MAX_REFLECTION_LOD = 9.0;
+	vec3 reflectedView = reflect(-V, N);
+	vec3 prefilteredColor = textureLod(skyRadiance, dirToRectilinear(reflectedView), roughness * MAX_REFLECTION_LOD).rgb;
+	vec2 envBRDF  = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+	vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
+
+	vec3 ambient = (kD * diffuse + specular) * ao * sceneData.settings.ambientStrength;
+
+	// vec3 ambient = 0.3 * albedo * ao;
 	vec3 color = ambient + Lo;
 
 	// color = color / (color + vec3(1.0));
 	color = tonemapFilmic(color, 1.0);
-	color = pow(color, vec3(1.0 / 2.2));
+	// color = pow(color, vec3(1.0 / 2.2));
 
 	outFragColor = vec4(color, baseColor.a);
 }

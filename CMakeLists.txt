@@ -8,6 +8,8 @@ project ("vulkan_guide" LANGUAGES C CXX)
 
 find_package(Vulkan REQUIRED)
 
+find_package(ktx CONFIG REQUIRED)
+
 add_subdirectory(third_party)
 
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
