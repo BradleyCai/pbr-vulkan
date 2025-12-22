@@ -252,7 +252,7 @@ AllocatedImage VulkanEngine::create_image(void *data, VkExtent3D size, VkFormat 
 	{
 		data_size = data_size * 4;
 	}
-	// TODO use create image and vkCmdCopyImage instead of vkCmdCopyBufferToImage to handle different image formats
+
 	AllocatedBuffer uploadbuffer = create_buffer(data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 	memcpy(uploadbuffer.info.pMappedData, data, data_size);
@@ -301,7 +301,7 @@ void VulkanEngine::init_vulkan()
 	vkb::InstanceBuilder builder;
 
 	// make the vulkan instance, with basic debug features
-	auto inst_ret = builder.set_app_name("Example Vulkan Application")
+	auto inst_ret = builder.set_app_name("Vulkan Application")
 							.request_validation_layers(bUseValidationLayers)
 							.use_default_debug_messenger()
 							.require_api_version(1, 3, 0)
@@ -911,13 +911,13 @@ void VulkanEngine::init_default_data()
 	sceneData.sunlightColor = glm::vec4(1.f);
 	sceneData.sunlightDirection = glm::vec4(0, 1, 0.5, 1.f);
 
-	const float lightRange = 10.0f;
-	sceneData.lightPositions[0] = glm::vec4(_origin + glm::vec3(5.f, 1.f, 5.f), lightRange);
-	sceneData.lightPositions[1] = glm::vec4(_origin + glm::vec3(5.f, 0.5f, -5.f), lightRange);
-	sceneData.lightPositions[2] = glm::vec4(_origin + glm::vec3(-5.f, -0.5f, -5.f), lightRange);
-	sceneData.lightPositions[3] = glm::vec4(_origin + glm::vec3(-5.f, -1.f, 5.f), lightRange);
+	const float lightRange = 15.0f;
+	sceneData.lightPositions[0] = glm::vec4(_origin + glm::vec3(5.f, 0.f, 5.f), lightRange);
+	sceneData.lightPositions[1] = glm::vec4(_origin + glm::vec3(5.f, 0.f, -5.f), lightRange);
+	sceneData.lightPositions[2] = glm::vec4(_origin + glm::vec3(-5.f, 0.f, -5.f), lightRange);
+	sceneData.lightPositions[3] = glm::vec4(_origin + glm::vec3(-5.f, 0.f, 5.f), lightRange);
 	for (int light = 0; light < 4; light++) {
-		sceneData.lightColors[light] = glm::vec4(1.f, 1.f, 1.f, 50.0f);
+		sceneData.lightColors[light] = glm::vec4(1.f, 1.f, 1.f, 5.f);
 	}
 
 	sceneData.settings.ambientStrength = 1.0f;
@@ -983,17 +983,25 @@ void VulkanEngine::init_default_data()
 		loadedNodes[m->name] = std::move(newNode);
 	}
 
-	auto metalRoughSpheresFile = loadGltf(this, "..\\assets\\MetalRoughSpheres.glb");
+	const std::string assetDirectory = "..\\assets\\";
+	
+	const std::string metalRoughSpheresFilename = "MetalRoughSpheres.glb";
+	auto metalRoughSpheresFile = loadGltf(this, assetDirectory + metalRoughSpheresFilename);
 	assert(metalRoughSpheresFile.has_value());
-	loadedScenes["metalRoughSpheres"] = *metalRoughSpheresFile;
+	pickableScenes.push_back(metalRoughSpheresFilename);
+	loadedScenes[metalRoughSpheresFilename] = *metalRoughSpheresFile;
 
-	auto helmetFile = loadGltf(this, "..\\assets\\DamagedHelmet.glb");
+	const std::string helmetFilename = "DamagedHelmet.glb";
+	auto helmetFile = loadGltf(this, assetDirectory + helmetFilename);
 	assert(helmetFile.has_value());
-	loadedScenes["helmet"] = *helmetFile;
+	pickableScenes.push_back(helmetFilename);
+	loadedScenes[helmetFilename] = *helmetFile;
 
-	// auto structureFile = loadGltf(this, "..\\assets\\structure.glb");
-	// assert(structureFile.has_value());
-	// loadedScenes["structure"] = *structureFile;
+	const std::string cerberusFilename = "Cerberus.glb";
+	auto cerberusFile = loadGltf(this, assetDirectory + cerberusFilename);
+	assert(cerberusFile.has_value());
+	pickableScenes.push_back(cerberusFilename);
+	loadedScenes[cerberusFilename] = *cerberusFile;
 
 	// init camera
 	mainCamera.velocity = glm::vec3(0.f);
@@ -1034,7 +1042,7 @@ void VulkanEngine::init_brdf_lut()
 	drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
 	drawImageUsages |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
-	VkImageCreateInfo brdfLUTImageInfo = vkinit::image_create_info(VK_FORMAT_R16G16B16A16_SFLOAT, drawImageUsages, _brdfLUTExtent);
+	VkImageCreateInfo brdfLUTImageInfo = vkinit::image_create_info(VK_FORMAT_R8G8B8A8_UNORM, drawImageUsages, _brdfLUTExtent);
 	_brdfLUTImage = create_image(brdfLUTImageInfo, false);
 
 	VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &_brdfLUTCompute.pipeline));
@@ -1319,7 +1327,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 	scissor.extent.height = _backgroundDrawImageExtent.height;
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
-	
+
 	// allocate a new uniform buffer for the scene data
 	AllocatedBuffer gpuSceneDataBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -1340,7 +1348,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 	writer.write_image(1, _skyTexture.imageView, _skySampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	writer.write_image(2, _skyIrradiance.imageView, _skySampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	writer.write_image(3, _skyRadiance.imageView, _skyRadianceSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	writer.write_image(4, _brdfLUTImage.imageView, _defaultSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	writer.write_image(4, _brdfLUTImage.imageView, _defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	writer.update_set(_device, globalDescriptor);
 
 	// defined outside of the draw function, this is the state we will try to skip
@@ -1460,10 +1468,7 @@ void VulkanEngine::update_scene()
 	// begin clock
 	auto start = std::chrono::system_clock::now();
 
-	loadedScenes["metalRoughSpheres"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
-	// loadedScenes["structure"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
-	loadedScenes["helmet"]->Draw(glm::mat4{ 1.f }, mainDrawContext);
-	// loadedNodes["Sphere"]->Draw(glm::translate(_origin), mainDrawContext);
+	loadedScenes[std::string(pickableScenes[currentScene])]->Draw(glm::mat4{ 1.f }, mainDrawContext);
 
 	// for (int x = -3; x < 3; x++)
 	// {
@@ -1550,14 +1555,19 @@ void VulkanEngine::run()
 			ComputeEffect &selected = backgroundEffects[currentBackgroundEffect];
 			ImGui::SliderFloat("Render Scale", &renderScale, 0.3f, 1.f);
 			ImGui::Text("Selected effect: ", selected.name);
-			ImGui::SliderInt("Effect Index", &currentBackgroundEffect, 0, backgroundEffects.size() - 1);
+			ImGui::SliderInt("Effect Index", &currentBackgroundEffect, 0, static_cast<int>(backgroundEffects.size() - 1));
 			ImGui::InputFloat4("data1", (float *)&selected.data.data1);
 			ImGui::InputFloat4("data2", (float *)&selected.data.data2);
 			ImGui::InputFloat4("data3", (float *)&selected.data.data3);
 			ImGui::InputFloat4("data4", (float *)&selected.data.data4);
 
-			ImGui::SeparatorText("Lighting");
 			ImGui::SliderFloat("Ambient Strength", &sceneData.settings.ambientStrength, 0.0f, 5.0f);
+
+			std::vector<const char *> pickableScenesPtrs;
+			pickableScenesPtrs.reserve(pickableScenes.size());
+			for (auto &sceneName : pickableScenes)
+				pickableScenesPtrs.push_back(sceneName.c_str());
+			ImGui::Combo("Models", &currentScene, pickableScenesPtrs.data(), static_cast<int>(pickableScenesPtrs.size()));
 		}
 		ImGui::End();
 

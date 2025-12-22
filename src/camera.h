@@ -10,7 +10,7 @@ public:
 	glm::vec3 position;
 	float yaw{0.f};
 	float pitch{0.f};
-	float fov{90.f};
+	float fov{70.f};
 	float distance{5.f};
 
 	glm::mat4 getViewMatrix();

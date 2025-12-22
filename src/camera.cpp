@@ -1,6 +1,7 @@
 #include <camera.h>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/constants.hpp>
 
 void Camera::update()
 {
@@ -11,13 +12,13 @@ void Camera::update()
 void Camera::processSDLEvent(SDL_Event &e)
 {
 	if (!dragging && e.type == SDL_MOUSEBUTTONDOWN &&
-		(e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_LEFT))
+		(e.button.button == SDL_BUTTON_MIDDLE))
 	{
 		dragging = true;
 		SDL_SetRelativeMouseMode(SDL_TRUE);
 	}
 	else if (dragging && e.type == SDL_MOUSEBUTTONUP &&
-		(e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_LEFT))
+		(e.button.button == SDL_BUTTON_MIDDLE))
 	{
 		dragging = false;
 		SDL_SetRelativeMouseMode(SDL_FALSE);
@@ -25,17 +26,26 @@ void Camera::processSDLEvent(SDL_Event &e)
 
 	if (dragging && e.type == SDL_MOUSEMOTION)
 	{
-		yaw = - (float)e.motion.xrel / 200.f + yaw;
-		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel / 200.f, 3.14f/2.f), -3.14f/2.f);
+		const float viewSensitivity = 1.f / 200.f;
+		yaw -= (float)e.motion.xrel * viewSensitivity;
+		pitch = glm::max(glm::min(pitch - (float)e.motion.yrel * viewSensitivity, glm::half_pi<float>()), -glm::half_pi<float>());
 	}
 
 	if (e.type == SDL_MOUSEWHEEL)
 	{
-		distance -= (float)e.wheel.y * 0.3f;
-		if (distance < 1.5f)
-			distance = 1.5f;
-		if (distance > 20.f)
-			distance = 20.f;
+		const float minZoom = 0.5f;
+		const float maxZoom = 20.f;
+		const float zoomSensitivity = 0.3f;
+
+		distance -= (float)e.wheel.y * zoomSensitivity;
+		if (distance < minZoom)
+		{
+			distance = minZoom;
+		}
+		else if (distance > maxZoom)
+		{
+			distance = maxZoom;
+		}
 	}
 }
 

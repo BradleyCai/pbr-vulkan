@@ -220,6 +220,8 @@ public:
 	VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
 	MaterialInstance defaultData;
 	GLTFMetallic_Roughness metalRoughMaterial;
+	std::vector<std::string> pickableScenes;
+	int currentScene{0};
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
 
 	AllocatedImage _whiteImage;

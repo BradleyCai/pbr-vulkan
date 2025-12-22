@@ -175,7 +175,7 @@ VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter)
 	}
 }
 
-std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image)
+std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image, VkFormat imageFormat)
 {
 	AllocatedImage newImage{};
 
@@ -201,7 +201,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
 					imagesize.height = height;
 					imagesize.depth = 1;
 
-					newImage = engine->create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, mipmapped);
+					newImage = engine->create_image(data, imagesize, imageFormat, VK_IMAGE_USAGE_SAMPLED_BIT, mipmapped);
 
 					stbi_image_free(data);
 				}
@@ -217,7 +217,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
 					imagesize.height = height;
 					imagesize.depth = 1;
 
-					newImage = engine->create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, mipmapped);
+					newImage = engine->create_image(data, imagesize, imageFormat, VK_IMAGE_USAGE_SAMPLED_BIT, mipmapped);
 
 					stbi_image_free(data);
 				}
@@ -243,7 +243,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
 													 imagesize.height = height;
 													 imagesize.depth = 1;
 
-													 newImage = engine->create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM,
+													 newImage = engine->create_image(data, imagesize, imageFormat,
 																					 VK_IMAGE_USAGE_SAMPLED_BIT, mipmapped);
 
 													 stbi_image_free(data);
@@ -329,7 +329,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 	// load samplers
 	for (fastgltf::Sampler &sampler : gltf.samplers)
 	{
-
 		VkSamplerCreateInfo sampl = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .pNext = nullptr};
 		sampl.maxLod = VK_LOD_CLAMP_NONE;
 		sampl.minLod = 0;
@@ -354,7 +353,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 	// load all textures
 	for (fastgltf::Image &image : gltf.images)
 	{
-		std::optional<AllocatedImage> img = load_image(engine, gltf, image);
+		std::optional<AllocatedImage> img = load_image(engine, gltf, image, VK_FORMAT_R8G8B8A8_UNORM);
 
 		if (img.has_value())
 		{
@@ -428,7 +427,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 			size_t img = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
 			size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
 
-			materialResources.colorImage = images[img];
+			materialResources.colorImage = *load_image(engine, gltf, gltf.images[img], VK_FORMAT_R8G8B8A8_SRGB);
 			materialResources.colorSampler = file.samplers[sampler];
 		}
 
@@ -468,9 +467,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 			size_t img = gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
 			size_t sampler = gltf.textures[mat.emissiveTexture.value().textureIndex].samplerIndex.value();
 
-			materialResources.emissiveImage = images[img];
+			materialResources.emissiveImage = *load_image(engine, gltf, gltf.images[img], VK_FORMAT_R8G8B8A8_SRGB);
 			materialResources.emissiveSampler = file.samplers[sampler];
-			
+
 			constants.emissiveFactors = glm::vec3(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
 			if (mat.emissiveStrength.has_value())
 				constants.emissiveStrength = mat.emissiveStrength.value();
